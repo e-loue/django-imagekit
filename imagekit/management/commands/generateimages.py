@@ -1,4 +1,6 @@
 from django.core.management.base import BaseCommand
+from django.core.cache import cache
+from django.conf import settings
 import re
 from ...registry import generator_registry, cachefile_registry
 from ...exceptions import MissingSource
@@ -25,13 +27,21 @@ well as "a:b" and "a:b:c".""")
             self.stdout.write('Validating generator: %s\n' % generator_id)
             for image_file in cachefile_registry.get(generator_id):
                 if image_file.name:
+                    cache_key = 'imagekit_generation:%s' % image_file.name
                     self.stdout.write('  %s\n' % image_file.name)
+                    if cache.get(cache_key):
+                        continue
+                    if image_file.storage.exists(image_file.name):
+                        cache.set(cache_key, True, settings.IMAGEKIT_BATCH_GENERATION_CACHE_LIFETIME)
+                        continue
                     try:
                         image_file.generate()
                     except MissingSource as err:
                         self.stdout.write('\t No source associated with\n')
                     except Exception as err:
                         self.stdout.write('\tFailed %s\n' % (err))
+                    else:
+                        cache.set(cache_key, True, settings.IMAGEKIT_BATCH_GENERATION_CACHE_LIFETIME)
 
     def compile_patterns(self, generator_ids):
         return [self.compile_pattern(id) for id in generator_ids]
